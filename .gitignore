@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+# build output of web/ (the committed copy for GitHub Pages lives in docs/)
+web/dist/
+
+# real sample configs and their outputs — never published
+decrypted/
+custom-configs/
+links.txt
+*.npvt
+*.npv
+verify_out/
+
+# python
+__pycache__/
+*.pyc
+
+# local / editor
+*.log
+.DS_Store
+.vscode/
+.idea/
