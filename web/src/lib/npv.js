@@ -193,15 +193,19 @@ export function toVmessLink(obj) {
   return 'vmess://' + btoa(unescape(encodeURIComponent(JSON.stringify(inner))));
 }
 
-/** base64 فایل .npvt برای دانلودِ خروجی. */
+/** دانلود متن به‌صورت فایل — مقاوم در برابر popup-blockerها. */
 export function downloadText(filename, content) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
   document.body.appendChild(a);
+  // click مستقیم + fallback با MouseEvent برای مرورگرهای سخت‌گیر
   a.click();
+  a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
