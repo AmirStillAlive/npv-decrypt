@@ -20,3 +20,6 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# local agent notes (do not publish)
+AGENTS.md
