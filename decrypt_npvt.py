@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-decrypt_npvt.py — دیکریپت فایل‌های کانفیگ NPV Tunnel / NapsternetV با پسوند .npvt
+decrypt_npvt.py: دیکریپت فایل‌های کانفیگ NPV Tunnel / NapsternetV با پسوند .npvt
 
 فرمت:   NPVT1\n<base64>,<base64>,<base64>
 الگوریتم: White-Box AES-128 در حالت CTR
@@ -10,7 +10,7 @@ decrypt_npvt.py — دیکریپت فایل‌های کانفیگ NPV Tunnel / N
             جدول‌های white-box باز می‌شود (بدون نیاز به کلید اصلی)
 
 جدول‌ها (tyBoxes / mbl / xorTable / tboxesLast) از سورس Go ابزار Pantegnos
-(https://github.com/FrontierTM/Pantegnos — MIT) استخراج شده‌اند.
+(https://github.com/FrontierTM/Pantegnos، پروانه MIT) استخراج شده‌اند.
 
 استفاده:
     python decrypt_npvt.py <پوشه ورودی> [پوشه خروجی]
@@ -32,7 +32,7 @@ XT = _T["xorTable"]["data"]       # [96][16][16] byte
 TBL = _T["tboxesLast"]["data"]    # [16][256] byte
 
 SHIFT_ORDER = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11]
-NR = 2  # تعداد راند (rounds) — از سورس اصلی
+NR = 2  # تعداد راند (rounds) طبق سورس اصلی
 
 _XT = XT  # shortcut
 
@@ -194,7 +194,7 @@ def main(argv):
     ok = fail = 0
     for f in files:
         if not f.lower().endswith(".npvt"):
-            print(f"[SKIP] {os.path.basename(f)} (فرمت NPVS/.npv — پشتیبانی نمی‌شود)")
+            print(f"[SKIP] {os.path.basename(f)} (فایل .npv رد شد)")
             continue
         try:
             parts = decrypt_file(f)
@@ -216,7 +216,7 @@ def main(argv):
         ok += 1
         total = sum(len(p) for p in parts)
         print(f"[OK]   {os.path.basename(f)} -> {out_name}  ({len(parts)} بلاک، {total} بایت)")
-    print(f"\nنتیجه: {ok} موفق، {fail} ناموفق — خروجی در: {dst}")
+    print(f"\nنتیجه: {ok} موفق، {fail} ناموفق. خروجی در: {dst}")
     return 0 if ok else 1
 
 

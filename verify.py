@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""معادل پایتونی verify.mjs — هش خروجی هر فایل را چاپ می‌کند."""
+"""معادل پایتونی verify.mjs: هش خروجی هر فایل را چاپ می‌کند."""
 import hashlib, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 import decrypt_npvt as D

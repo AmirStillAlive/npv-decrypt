@@ -11,7 +11,7 @@ export interface FileUploadProps {
   className?: string;
 }
 
-/** ناحیهٔ دریافت فایل: کشیدن و رها کردن یا انتخاب دستی — تک‌فایل. */
+/** ناحیه دریافت فایل: کشیدن و رها کردن یا انتخاب دستی (تک فایل). */
 export function FileUpload({ accept, maxSize, onFile, hint, className }: FileUploadProps) {
   const [file, setFile] = React.useState<File | null>(null);
   const [over, setOver] = React.useState(false);

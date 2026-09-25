@@ -1,10 +1,10 @@
-/** ابزارهای کمکی فارسی — cn، اعداد فارسی و حجم فایل. */
+/** ابزارهای کمکی فارسی: cn، اعداد فارسی و حجم فایل. */
 
 export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
-/** عدد لاتین → ارقام فارسی (برای لایهٔ نمایش) */
+/** عدد لاتین به ارقام فارسی (برای لایه نمایش) */
 export function fa(n: number | string): string {
   return String(n).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 }
