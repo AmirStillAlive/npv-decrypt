@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { ArrowLeft, Check, Copy, Download, FileCode2, FileJson, Github, KeyRound, Lock, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Download, FileJson, Github, Lock } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { FileUpload } from './components/ui/file-upload';
+import { Alert } from './components/ui/alert';
+import { Accordion } from './components/ui/accordion';
 import { downloadText } from './lib/npv';
 import { cn, fa } from './lib/utils';
 
@@ -42,7 +44,7 @@ function safeName(s: string): string {
   return s.replace(/[\\/:*?"<>|\n\r\t]/g, '_').trim().slice(0, 80) || 'config';
 }
 
-/** vless://uuid@host:port?params#remark — از روی outbound استاندارد v2ray */
+/** ساخت لینک vless از روی outbound استاندارد v2ray */
 function buildVlessLink(ob: Record<string, any>, remark: string): BuiltLink | null {
   try {
     const ss = ob.streamSettings ?? {};
@@ -88,7 +90,7 @@ function buildVlessLink(ob: Record<string, any>, remark: string): BuiltLink | nu
   }
 }
 
-/** trojan://password@host:port?params#remark — از روی outbound استاندارد v2ray */
+/** ساخت لینک trojan از روی outbound استاندارد v2ray */
 function buildTrojanLink(ob: Record<string, any>, remark: string): BuiltLink | null {
   try {
     const ss = ob.streamSettings ?? {};
@@ -126,7 +128,7 @@ function buildTrojanLink(ob: Record<string, any>, remark: string): BuiltLink | n
   }
 }
 
-/** vmess://... — برای پروفایل‌های سادهٔ بدون v2rayJson */
+/** ساخت لینک vmess برای پروفایل‌های ساده بدون v2rayJson */
 function buildVmessLink(item: Record<string, any>): BuiltLink | null {
   const p = (item.v2rayProfile ?? {}) as Record<string, any>;
   if (!p.password || !p.server) return null;
@@ -183,9 +185,14 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
   ]);
   if (!npv.hasTables()) npv.setTables(tables.default);
 
+  const fmt = npv.detectFormat(text);
+  if (fmt === 'npv') {
+    throw new Error('این فایل از نوع .npv است و باز نمی‌شود. لطفا فایل .npvt بدهید.');
+  }
+
   const blobs = npv.decryptFileText(text);
   if (!blobs.length) {
-    throw new Error('هیچ بلاک قابل رمزگشایی پیدا نشد. فایل `.npvt` است؟');
+    throw new Error('این فایل شناخته نشد. فقط فایل .npvt قابل قبول است.');
   }
 
   const prettyParts = blobs.map((b: Uint8Array) => npv.pretty(b));
@@ -202,8 +209,8 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
     for (const item of list as Record<string, any>[]) {
       const profile = (item.v2rayProfile ?? {}) as Record<string, any>;
       const name = String(item.name ?? profile.remarks ?? '').trim() || 'بدون نام';
-      const address = String(profile.server ? `${profile.server}:${profile.serverPort}` : item.address ?? '—');
-      let proto = '—';
+      const address = String(profile.server ? `${profile.server}:${profile.serverPort}` : (item.address ?? 'نامشخص'));
+      let proto = 'نامشخص';
       let links: BuiltLink[] = [];
       let customJson: string | null = null;
       if (profile.v2rayJson) {
@@ -212,7 +219,7 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
           const outs = (full.outbounds ?? []) as Record<string, any>[];
           const proxy = outs.find((o) => o.tag === 'proxy') ?? outs[0];
           if (proxy) {
-            proto = String(proxy.protocol ?? '—');
+            proto = String(proxy.protocol ?? 'نامشخص');
             const b =
               proxy.protocol === 'vless'
                 ? buildVlessLink(proxy, name)
@@ -223,7 +230,7 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
           }
           customJson = JSON.stringify(full, null, 2);
         } catch {
-          /* v2rayJson خراب — می‌رویم سراغ پروفایل */
+          /* اگر v2rayJson خراب بود، از روی پروفایل ادامه می‌دهیم */
         }
       }
       if (!links.length) {
@@ -237,8 +244,8 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
         name,
         address,
         proto,
-        net: String(profile.network ?? '—'),
-        tls: String(profile.security ?? '—'),
+        net: String(profile.network ?? 'نامشخص'),
+        tls: String(profile.security ?? 'نامشخص'),
         links,
         customJson,
         json: JSON.stringify(item, null, 2),
@@ -257,13 +264,13 @@ async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
   };
 }
 
-/** متن فایل «همهٔ لینک‌ها» — یک لینک در هر خط */
+/** متن فایل «همه لینک‌ها»: هر خط یک لینک */
 function allLinksText(result: Result): string {
-  const lines = [`# ${result.fileName} — خروجی npv-decrypt`, ''];
+  const lines = [`# ${result.fileName} : خروجی npv-decrypt`, ''];
   for (const e of result.entries) {
     lines.push(`# ${e.name} (${e.address})`);
     for (const l of e.links) lines.push(l.value);
-    if (e.customJson) lines.push(`# + کانفیگ JSON کامل در دکمهٔ JSON همین ردیف`);
+    if (e.customJson) lines.push('# کانفیگ JSON کامل را با دکمه JSON همین ردیف بگیرید');
     lines.push('');
   }
   return lines.join('\n');
@@ -279,7 +286,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
         try {
           await navigator.clipboard.writeText(value);
         } catch {
-          /* مرورگر اجازه نداد — بی‌صدا رد می‌شویم */
+          /* اگر مرورگر اجازه نداد، بی‌صدا رد می‌شویم */
         }
         setDone(true);
         setTimeout(() => setDone(false), 1500);
@@ -292,6 +299,27 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+const FAQ = [
+  {
+    id: 'how',
+    title: 'چطور کار می‌کند؟',
+    content:
+      'فایل npvt در واقع چند رشته base64 است. هر رشته با AES-128 در حالت CTR رمز شده و کلید آن به شکل جدول‌های white-box داخل خود اپ جاسازی شده است. این صفحه همان جدول‌ها را در خودش دارد و کی‌استریم را داخل مرورگر شما می‌سازد. به همین دلیل برای باز کردن فایل به هیچ کلیدی نیاز نیست.',
+  },
+  {
+    id: 'safe',
+    title: 'این رمز امن است؟',
+    content:
+      'نه. چون جدول‌های رمز عمومی‌اند، هر کسی می‌تواند همین کار را بکند و این رمز فقط جلوی خوانده شدن مستقیم را می‌گیرد. نکته مهم‌تر این است که کانفیگی که از این فایل‌ها بیرون می‌آید به سرور سازنده همان کانفیگ وصل می‌شود، پس حتما بدانید به چه سروری اعتماد می‌کنید.',
+  },
+  {
+    id: 'privacy',
+    title: 'فایل من کجا می‌رود؟',
+    content:
+      'هیچ‌جا. فایل فقط با FileReader داخل همین صفحه خوانده می‌شود و صفحه هیچ درخواستی برای آن به هیچ سروری نمی‌فرستد. می‌توانید اینترنت را قطع کنید و باز هم فایل را باز کنید.',
+  },
+];
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -303,13 +331,13 @@ export default function App() {
     setBusy(true);
     setError(null);
     setResult(null);
-    // بارگذاری جدول‌ها از حلقهٔ رندر بیرون است
+    // بارگذاری جدول‌ها از حلقه رندر بیرون است
     await new Promise((r) => setTimeout(r, 30));
     try {
       const { result } = await decryptFile(file);
       setResult(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'رمزنگاری ناموفق بود.');
+      setError(e instanceof Error ? e.message : 'رمزگشایی ناموفق بود.');
     } finally {
       setBusy(false);
     }
@@ -321,12 +349,12 @@ export default function App() {
       <header className="space-y-3">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Lock className="size-3.5" />
-          <span>همه‌چیز در مرورگر شما انجام می‌شود — بدون آپلود به سرور</span>
+          <span>همه‌چیز در مرورگر شما انجام می‌شود و فایل به هیچ سروری فرستاده نمی‌شود</span>
         </div>
         <h1 className="text-3xl font-bold leading-tight">دیکریپت کانفیگ NPV Tunnel</h1>
         <p className="max-w-prose text-muted-foreground">
-          فایل کانفیگ <span dir="ltr" className="font-medium">.npvt</span> را بگذارید تا به JSON خوانا و لینک آمادهٔ ورود تبدیل
-          شود. رمزگشایی با جدول‌های white-box کاملاً داخل همین صفحه اجرا می‌شود.
+          فایل کانفیگ <span dir="ltr" className="font-medium">.npvt</span> را بگذارید تا به JSON خوانا و لینک آماده ورود تبدیل
+          شود. رمزگشایی با جدول‌های white-box کاملا داخل همین صفحه اجرا می‌شود.
         </p>
       </header>
 
@@ -337,7 +365,7 @@ export default function App() {
             accept=".npvt"
             maxSize={10 * 1024 * 1024}
             onFile={setFile}
-            hint="فقط فرمت .npvt — فایل .npv (نسخهٔ ۵) هنوز پشتیبانی نمی‌شود"
+            hint="فایل با پسوند .npvt"
           />
           <div className="flex items-center gap-3">
             <Button onClick={run} disabled={!file || busy}>
@@ -349,47 +377,39 @@ export default function App() {
             )}
           </div>
           {error && (
-            <p className="text-sm text-destructive" role="alert">
+            <Alert variant="destructive" title="خطا">
               {error}
-            </p>
+            </Alert>
           )}
         </div>
 
         {/* نتیجه */}
         {result && (
           <div className="mt-6 space-y-4 border-t border-border pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm">
-                <span dir="auto" className="font-medium">
-                  {result.fileName}
-                </span>
-                <span className="text-muted-foreground">
-                  {' '}
-                  — {fa(result.blobCount)} بلاک، {fa(result.entries.length)} کانفیگ استخراج شد
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    downloadText(result.fileName.replace(/\.npvt$/i, '') + '.txt', result.raw)
-                  }
-                >
-                  <Download />
-                  دانلود JSON خام
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    downloadText(result.fileName.replace(/\.npvt$/i, '') + '-links.txt', allLinksText(result))
-                  }
-                >
-                  <Download />
-                  دانلود همهٔ لینک‌ها
-                </Button>
-              </div>
+            <Alert variant="success" title={result.fileName}>
+              {fa(result.blobCount)} بلاک و {fa(result.entries.length)} کانفیگ استخراج شد.
+            </Alert>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  downloadText(result.fileName.replace(/\.npvt$/i, '') + '.txt', result.raw)
+                }
+              >
+                <Download />
+                دانلود JSON خام
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  downloadText(result.fileName.replace(/\.npvt$/i, '') + '-links.txt', allLinksText(result))
+                }
+              >
+                <Download />
+                دانلود همه لینک‌ها
+              </Button>
             </div>
 
             {result.entries.length > 0 && (
@@ -405,7 +425,7 @@ export default function App() {
                         {' · '}
                         <span dir="ltr">{e.proto}</span>
                         {' · '}شبکه {e.net}
-                        {e.tls !== '—' && e.tls ? ` · ${e.tls}` : ''}
+                        {e.tls !== 'نامشخص' && e.tls ? ` · ${e.tls}` : ''}
                       </p>
                     </div>
 
@@ -431,7 +451,7 @@ export default function App() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-warning">لینک قابل ساخت نیست — خروجی JSON را ببینید.</p>
+                      <p className="text-xs text-warning">لینک قابل ساخت نیست. خروجی JSON را ببینید.</p>
                     )}
 
                     <div className="flex flex-wrap gap-2">
@@ -465,40 +485,16 @@ export default function App() {
         )}
       </section>
 
-      {/* سه کارت توضیح */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <article className="rounded-surface border border-border bg-card p-4 shadow-surface">
-          <KeyRound className="mb-2 size-4 text-brand" />
-          <h2 className="mb-1 text-sm font-semibold">چطور کار می‌کند؟</h2>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            فرمت <span dir="ltr">NPVT1</span> یک AES-128 در حالت CTR است که کلیدش به‌جای متن، به‌صورت جدول‌های
-            white-box در خود اپ پیاده شده. همان جدول‌ها این‌جا بازسازی و کی‌استریم تولید می‌شود.
-          </p>
-        </article>
-
-        <article className="rounded-surface border border-border bg-card p-4 shadow-surface">
-          <ShieldCheck className="mb-2 size-4 text-brand" />
-          <h2 className="mb-1 text-sm font-semibold">چرا این رمز امن نیست؟</h2>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            جدول‌های white-box عمومی‌اند و کلید اصلی هیچ‌جا لازم نیست؛ پس «رمزگذاری» فقط مانع خواندن مستقیم است.
-            کانفیگی که می‌گیرید از سرور خودِ سازنده‌اش رد می‌شود.
-          </p>
-        </article>
-
-        <article className="rounded-surface border border-border bg-card p-4 shadow-surface">
-          <FileCode2 className="mb-2 size-4 text-brand" />
-          <h2 className="mb-1 text-sm font-semibold">چه فرمت‌هایی؟</h2>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            <span dir="ltr">.npvt</span> کامل پشتیبانی می‌شود. فایل <span dir="ltr">.npv</span> با ساختار
-            <span dir="ltr"> NPVS</span> نسخهٔ ۵ فعلاً خیر — نسخهٔ پایتونی و سورس در مخزن گیت‌هاب موجود است.
-          </p>
-        </article>
+      {/* پرسش‌های پرتکرار */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">راهنما</h2>
+        <Accordion items={FAQ} />
       </section>
 
       {/* پاورقی */}
       <footer className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-xs text-muted-foreground">
         <span className={cn('fa-num')}>
-          متن‌باز با پروانهٔ MIT · جدول‌ها از پروژهٔ Pantegnos
+          متن‌باز با پروانه MIT و جدول‌های پروژه Pantegnos
         </span>
         <a
           href={REPO_URL}

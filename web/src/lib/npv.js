@@ -1,9 +1,9 @@
 /**
- * npv.js — پورت جاوااسکریپت دیکریپت کانفیگ‌های NPV Tunnel (.npvt)
+ * npv.js: پورت جاوااسکریپت دیکریپت کانفیگ‌های NPV Tunnel (.npvt)
  *
  * فرمت:  NPVT1\n<base64>,<base64>,...
  * رمز:   AES-128-CTR با کلید white-box (جدول‌ها از سورس Go پروژهٔ
- *         Pantegnos — https://github.com/FrontierTM/Pantegnos — MIT)
+ *         Pantegnos (https://github.com/FrontierTM/Pantegnos، پروانه MIT)
  *
  * هیچ‌چیز به سرور نمی‌رود؛ همه‌چیز داخل مرورگر انجام می‌شود.
  */
@@ -97,7 +97,7 @@ export function core(block) {
   return out;
 }
 
-/** AES-CTR با هستهٔ white-box — شمارنده big-endian روی ۱۶ بایت. */
+/** AES-CTR با هسته white-box؛ شمارنده big-endian روی ۱۶ بایت. */
 export function ctr(nonce, data) {
   const counter = Uint8Array.from(nonce);
   const out = new Uint8Array(data.length);
@@ -134,6 +134,19 @@ export function decryptBlob(data) {
 /** متن UTF-8 → رشته */
 export function utf8decode(bytes) {
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+/**
+ * نوع فایل را از روی متن حدس می‌زند: npvt، npv یا unknown.
+ * @param {string} text
+ */
+export function detectFormat(text) {
+  const head = text.trimStart().slice(0, 64);
+  if (head.startsWith('NPVS')) return 'npv';
+  if (head.includes('NPVT1') || head.includes('NPVTSUB1')) return 'npvt';
+  const toks = text.split(',').map((t) => t.trim()).filter(Boolean);
+  if (toks.length && toks.every((t) => /^[A-Za-z0-9+/=\s]+$/.test(t))) return 'npvt';
+  return 'unknown';
 }
 
 /**
@@ -193,7 +206,7 @@ export function toVmessLink(obj) {
   return 'vmess://' + btoa(unescape(encodeURIComponent(JSON.stringify(inner))));
 }
 
-/** دانلود متن به‌صورت فایل — مقاوم در برابر popup-blockerها. */
+/** دانلود متن به‌صورت فایل؛ مقاوم در برابر popup-blockerها. */
 export function downloadText(filename, content) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
