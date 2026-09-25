@@ -177,18 +177,129 @@ function buildProfileLink(item: Record<string, any>): BuiltLink | null {
   return buildVmessLink(item);
 }
 
-async function decryptFile(file: File): Promise<{ result: Result; npv: any }> {
+/** نوع فایل را از روی محتوا حدس می‌زند؛ متن به base64 تبدیل می‌شود. */
+function detectFormat(text: string): 'npvs' | 'npvt' | 'unknown' {
+  const head = text.trimStart().slice(0, 16);
+  if (head.startsWith('NPVS')) return 'npvs';
+  if (head.includes('NPVT1') || head.includes('NPVTSUB1')) return 'npvt';
+  return 'unknown';
+}
+
+/** فایل NPVS را باز می‌کند و به همان ساختار خروجی .npvt تبدیل می‌کند. */
+async function decryptNpvsFile(file: File, password: string): Promise<{ result: Result; npv: any }> {
+  const [npvs, tables] = await Promise.all([
+    import('./lib/npvs'),
+    import('./lib/npvs_tables.json'),
+  ]);
+  if (!npvs.hasWbTables()) npvs.setWbTables(tables.default);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const res = await npvs.decryptNpvs(bytes, password);
+
+  // متن باز شده ممکن است یک کانفیگ، یک آرایه، یا چند کانفیگ پشت‌سرهم باشد
+  const entries: Entry[] = [];
+  const pushItem = (item: Record<string, any>) => {
+    const profile = (item.v2rayProfile ?? {}) as Record<string, any>;
+    const name = String(item.name ?? profile.remarks ?? '').trim() || 'بدون نام';
+    const address = String(
+      profile.server ? `${profile.server}:${profile.serverPort}` : (item.address ?? 'نامشخص'),
+    );
+    let proto = 'نامشخص';
+    let links: BuiltLink[] = [];
+    let customJson: string | null = null;
+    if (profile.v2rayJson) {
+      try {
+        const full = JSON.parse(profile.v2rayJson);
+        const outs = (full.outbounds ?? []) as Record<string, any>[];
+        const proxy = outs.find((o) => o.tag === 'proxy') ?? outs[0];
+        if (proxy) {
+          proto = String(proxy.protocol ?? 'نامشخص');
+          const b =
+            proxy.protocol === 'vless'
+              ? buildVlessLink(proxy, name)
+              : proxy.protocol === 'trojan'
+                ? buildTrojanLink(proxy, name)
+                : null;
+          if (b) links.push(b);
+        }
+        customJson = JSON.stringify(full, null, 2);
+      } catch {
+        /* اگر v2rayJson خراب بود، از روی پروفایل ادامه می‌دهیم */
+      }
+    }
+    if (!links.length) {
+      const b = buildProfileLink(item);
+      if (b) {
+        links.push(b);
+        proto = b.kind;
+      }
+    }
+    entries.push({
+      name,
+      address,
+      proto,
+      net: String(profile.network ?? 'نامشخص'),
+      tls: String(profile.security ?? 'نامشخص'),
+      links,
+      customJson,
+      json: JSON.stringify(item, null, 2),
+    });
+  };
+
+  const collect = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') pushItem(value as Record<string, any>);
+  };
+
+  if (res.json) {
+    collect(res.json);
+  } else {
+    // متن آزاد: تکه‌های JSON را یکی‌یکی پیدا می‌کنیم
+    for (const m of res.plaintext.match(/\{[\s\S]*?\}/g) ?? []) {
+      try {
+        collect(JSON.parse(m));
+      } catch {
+        /* تکهٔ ناقص را رد می‌کنیم */
+      }
+    }
+  }
+
+  // سرآیند را هم بالای خروجی می‌نویسیم تا چیزی گم نشود
+  const keyLines: string[] = [];
+  for (const [k, v] of res.keys as [string, string][]) {
+    if (k !== 'DEK/CEK' && v) keyLines.push(`# ${k}: ${v}`);
+  }
+  const header = [
+    `# ${file.name} : خروجی npv-decrypt`,
+    `# configId: ${res.meta.configId ?? 'نامشخص'}`,
+    ...res.notes.map((n: string) => `# ${n}`),
+    ...keyLines,
+  ].join('\n');
+
+  return {
+    npv: null,
+    result: {
+      fileName: file.name,
+      blobCount: entries.length,
+      entries,
+      raw: `${header}\n\n${res.plaintext}`,
+    },
+  };
+}
+
+async function decryptFile(file: File, password = ''): Promise<{ result: Result; npv: any }> {
   const text = await file.text();
+  const fmt = detectFormat(text);
+
+  if (fmt === 'npvs') {
+    return await decryptNpvsFile(file, password);
+  }
+
   const [npv, tables] = await Promise.all([
     import('./lib/npv'),
     import('./lib/npv_tables.json'),
   ]);
   if (!npv.hasTables()) npv.setTables(tables.default);
-
-  const fmt = npv.detectFormat(text);
-  if (fmt === 'npv') {
-    throw new Error('این فایل از نوع .npv است و باز نمی‌شود. لطفا فایل .npvt بدهید.');
-  }
 
   const blobs = npv.decryptFileText(text);
   if (!blobs.length) {
@@ -304,7 +415,13 @@ const FAQ = [
     id: 'how',
     title: 'چطور کار می‌کند؟',
     content:
-      'فایل npvt در واقع چند رشته base64 است. هر رشته با AES-128 در حالت CTR رمز شده و کلید آن به شکل جدول‌های white-box داخل خود اپ جاسازی شده است. این صفحه همان جدول‌ها را در خودش دارد و کی‌استریم را داخل مرورگر شما می‌سازد. به همین دلیل برای باز کردن فایل به هیچ کلیدی نیاز نیست.',
+      'فایل npvt در واقع چند رشته base64 است. هر رشته با AES-128 در حالت CTR رمز شده و کلید آن به شکل جدول‌های white-box داخل خود اپ جاسازی شده است. این صفحه همان جدول‌ها را در خودش دارد و کی‌استریم را داخل مرورگر شما می‌سازد. به همین دلیل برای باز کردن فایل به هیچ کلیدی نیاز نیست. فایل npvs هم باز می‌شود: محتوای آن با ChaCha20-Poly1305 رمز شده و کلید از جدول‌های white-box خود اپ به دست می‌آید، پس آن هم بدون رمز و کاملا آفلاین باز می‌شود.',
+  },
+  {
+    id: 'npvs-pass',
+    title: 'باز همهٔ فایل‌های npvs ممکن است؟',
+    content:
+      'بیشترشان بله. اگر سازنده فایل را بدون رمز ساخته باشد، همین صفحه کاملا آفلاین بازش می‌کند. فقط فایل‌هایی که سازنده برایشان رمز گذاشته به همان رمز نیاز دارند که باید از خودش بگیرید. فایل‌هایی که فقط برای یک کلید خصوصی خاص ساخته شده‌اند با این روش باز نمی‌شوند.',
   },
   {
     id: 'safe',
@@ -316,12 +433,14 @@ const FAQ = [
     id: 'privacy',
     title: 'فایل من کجا می‌رود؟',
     content:
-      'هیچ‌جا. فایل فقط با FileReader داخل همین صفحه خوانده می‌شود و صفحه هیچ درخواستی برای آن به هیچ سروری نمی‌فرستد. می‌توانید اینترنت را قطع کنید و باز هم فایل را باز کنید.',
+      'فایل فقط داخل همین صفحه خوانده می‌شود و هیچ درخواستی برای آن به هیچ سروری فرستاده نمی‌شود. تنها چیزی که از اینترنت می‌آید فایل‌های ثابت خود صفحه است. اگر اینترنت را قطع کنید و صفحه از قبل باز شده باشد، باز هم فایل را باز می‌کند.',
   },
 ];
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -331,13 +450,24 @@ export default function App() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setNeedsPassword(null);
     // بارگذاری جدول‌ها از حلقه رندر بیرون است
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const { result } = await decryptFile(file);
+      const { result } = await decryptFile(file, password);
       setResult(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'رمزگشایی ناموفق بود.');
+      // فایل‌های NPVS محافظت‌شده به رمز نیاز دارند؛ به‌جای خطای خشک، رمز می‌خواهیم
+      const anyE = e as { name?: string; creatorMessage?: string; message?: string };
+      if (anyE?.name === 'NeedsPassphrase') {
+        setNeedsPassword(
+          anyE.creatorMessage
+            ? `${anyE.message} پیام سازنده: ${anyE.creatorMessage}`
+            : (anyE.message ?? 'این فایل رمز دارد.'),
+        );
+      } else {
+        setError(e instanceof Error ? e.message : 'رمزگشایی ناموفق بود.');
+      }
     } finally {
       setBusy(false);
     }
@@ -349,12 +479,16 @@ export default function App() {
       <header className="space-y-3">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Lock className="size-3.5" />
-          <span>همه‌چیز در مرورگر شما انجام می‌شود و فایل به هیچ سروری فرستاده نمی‌شود</span>
+          <span>
+            این صفحه فقط فایل‌های ایستای گیت‌هاب است. فایل شما با آپلود به جایی نمی‌رود و
+            رمزگشایی در همین مرورگر انجام می‌شود.
+          </span>
         </div>
-        <h1 className="text-3xl font-bold leading-tight">دیکریپت کانفیگ NPV Tunnel</h1>
+        <h1 className="text-3xl font-bold leading-tight">رمزگشایی کانفیگ NPV Tunnel</h1>
         <p className="max-w-prose text-muted-foreground">
-          فایل کانفیگ <span dir="ltr" className="font-medium">.npvt</span> را بگذارید تا به JSON خوانا و لینک آماده ورود تبدیل
-          شود. رمزگشایی با جدول‌های white-box کاملا داخل همین صفحه اجرا می‌شود.
+          فایل کانفیگ <span dir="ltr" className="font-medium">.npvt</span> یا{' '}
+          <span dir="ltr" className="font-medium">.npvs</span> را بگذارید تا به JSON خوانا و لینک آماده
+          ورود تبدیل شود. رمزگشایی با جدول‌های white-box کاملا داخل همین صفحه اجرا می‌شود.
         </p>
       </header>
 
@@ -362,20 +496,36 @@ export default function App() {
       <section className="rounded-surface border border-border bg-card p-5 shadow-surface">
         <div className="space-y-4">
           <FileUpload
-            accept=".npvt"
+            accept=".npvt,.npvs"
             maxSize={10 * 1024 * 1024}
             onFile={setFile}
-            hint="فایل با پسوند .npvt"
+            hint="فایل با پسوند .npvt یا .npvs"
           />
           <div className="flex items-center gap-3">
             <Button onClick={run} disabled={!file || busy}>
-              {busy ? 'در حال رمزگشایی…' : 'دیکریپت کن'}
+              {busy ? 'در حال رمزگشایی…' : 'رمزگشایی کن'}
               {!busy && <ArrowLeft />}
             </Button>
             {busy && (
               <span className="text-xs text-muted-foreground">بارگذاری جدول‌های رمز…</span>
             )}
           </div>
+          {needsPassword && (
+            <div className="space-y-2">
+              <Alert variant="warning" title="این فایل رمز دارد">
+                {needsPassword}
+              </Alert>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && run()}
+                placeholder="رمز عبور را وارد کنید"
+                aria-label="رمز عبور کانفیگ"
+                className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
+            </div>
+          )}
           {error && (
             <Alert variant="destructive" title="خطا">
               {error}

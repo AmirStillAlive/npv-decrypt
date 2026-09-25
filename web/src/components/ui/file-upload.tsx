@@ -54,7 +54,8 @@ export function FileUpload({ accept, maxSize, onFile, hint, className }: FileUpl
       >
         <FileUp className="size-5 text-muted-foreground" />
         <p className="text-sm">
-          فایل <span dir="ltr" className="font-medium">.npvt</span> را این‌جا رها کنید یا{' '}
+          فایل <span dir="ltr" className="font-medium">.npvt</span> یا{' '}
+          <span dir="ltr" className="font-medium">.npvs</span> را این‌جا رها کنید یا{' '}
           <span className="font-medium underline underline-offset-4">انتخاب کنید</span>
         </p>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}

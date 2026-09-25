@@ -3,12 +3,15 @@ node_modules/
 # build output of web/ (the committed copy for GitHub Pages lives in docs/)
 web/dist/
 
-# real sample configs and their outputs — never published
+# real sample configs and their outputs — never published.
+# Note: fixtures under web/test/fixtures/ are synthetic and intentionally tracked.
 decrypted/
 custom-configs/
 links.txt
 *.npvt
 *.npv
+*.npvs
+!web/test/fixtures/*.npvs
 verify_out/
 
 # python
