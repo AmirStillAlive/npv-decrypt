@@ -185,6 +185,19 @@ function detectFormat(text: string): 'npvs' | 'npvt' | 'unknown' {
   return 'unknown';
 }
 
+/**
+ * نسخهٔ NPVS را از روی بایت پنجم فایل می‌خواند.
+ * نسخهٔ ۱ چیدمان سرآیند JSON دارد که رمزگشایی‌اش پیاده شده است؛
+ * نسخه‌های بالاتر چیدمان دیگری دارند که هنوز از آن بازی درنمی‌آید.
+ * @returns شماره نسخه، یا null اگر فایل NPVS نبود
+ */
+async function readNpvsVersion(file: File): Promise<number | null> {
+  const buf = await file.slice(0, 5).arrayBuffer();
+  const head = new Uint8Array(buf);
+  const isNpvs = head.length === 5 && String.fromCharCode(...head.slice(0, 4)) === 'NPVS';
+  return isNpvs ? head[4] : null;
+}
+
 /** فایل NPVS را باز می‌کند و به همان ساختار خروجی .npvt تبدیل می‌کند. */
 async function decryptNpvsFile(file: File, password: string): Promise<{ result: Result; npv: any }> {
   const [npvs, tables] = await Promise.all([
@@ -292,6 +305,13 @@ async function decryptFile(file: File, password = ''): Promise<{ result: Result;
   const fmt = detectFormat(text);
 
   if (fmt === 'npvs') {
+    const version = await readNpvsVersion(file);
+    if (version !== null && version > 1) {
+      throw new Error(
+        `این فایل نسخهٔ ${version} فرمت NPVS است و ما فقط نسخهٔ ۱ را رمزگشایی می‌کنیم. ` +
+          `نسخه‌های جدیدتر با کلید و جدول‌های دیگری ساخته شده‌اند و جدول‌هایشان هنوز از اپ بیرون کشیده نشده است.`,
+      );
+    }
     return await decryptNpvsFile(file, password);
   }
 
